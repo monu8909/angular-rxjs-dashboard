@@ -8,8 +8,8 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { BehaviorSubject, combineLatest, Subject } from 'rxjs';
-import { map, debounceTime, distinctUntilChanged, takeUntil } from 'rxjs/operators';
+import { BehaviorSubject, combineLatest, Subject, merge } from 'rxjs';
+import { map, debounceTime, distinctUntilChanged, takeUntil, skip, delay } from 'rxjs/operators';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { MatPaginator, MatPaginatorModule } from '@angular/material/paginator';
 import { MatSort, MatSortModule } from '@angular/material/sort';
@@ -533,6 +533,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   roleFilter$ = new BehaviorSubject<string>('');
 
   private destroy$ = new Subject<void>();
+  private isFirstLoad = true;
 
   constructor(
     public userService: UserService,
@@ -546,6 +547,13 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    merge(
+      this.searchTerm$.pipe(skip(1), debounceTime(50)),
+      this.roleFilter$.pipe(skip(1), debounceTime(50))
+    )
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(() => this.loading.set(true));
+
     combineLatest([
       this.userService.users$,
       this.searchTerm$.pipe(debounceTime(300), distinctUntilChanged()),
@@ -572,8 +580,16 @@ export class DashboardComponent implements OnInit, OnDestroy {
       .subscribe((filtered) => {
         this.filteredUsers = filtered;
         this.dataSource.data = filtered;
-        this.loading.set(false);
-        this.attachPaginatorAndSort();
+        if (this.isFirstLoad) {
+          this.isFirstLoad = false;
+          setTimeout(() => {
+            this.loading.set(false);
+            this.attachPaginatorAndSort();
+          }, 500);
+        } else {
+          this.loading.set(false);
+          this.attachPaginatorAndSort();
+        }
       });
 
     this.userService.roleDistribution$
