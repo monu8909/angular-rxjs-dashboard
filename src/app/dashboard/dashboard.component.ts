@@ -8,8 +8,8 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { BehaviorSubject, combineLatest, Subject, merge } from 'rxjs';
-import { map, debounceTime, distinctUntilChanged, takeUntil, skip, delay } from 'rxjs/operators';
+import { BehaviorSubject, combineLatest, merge, Subject, timer } from 'rxjs';
+import { map, debounceTime, distinctUntilChanged, takeUntil, skip, switchMap, tap } from 'rxjs/operators';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { MatPaginator, MatPaginatorModule } from '@angular/material/paginator';
 import { MatSort, MatSortModule } from '@angular/material/sort';
@@ -528,12 +528,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
   roleDistribution: { role: UserRole; count: number }[] = [];
   filteredUsers: User[] = [];
   loading = signal(true);
+  private filterLoadingDelay = 800;
 
   searchTerm$ = new BehaviorSubject<string>('');
   roleFilter$ = new BehaviorSubject<string>('');
 
   private destroy$ = new Subject<void>();
-  private isFirstLoad = true;
 
   constructor(
     public userService: UserService,
@@ -548,11 +548,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     merge(
-      this.searchTerm$.pipe(skip(1), debounceTime(50)),
-      this.roleFilter$.pipe(skip(1), debounceTime(50))
+      this.searchTerm$.pipe(skip(1)),
+      this.roleFilter$.pipe(skip(1))
     )
-      .pipe(takeUntil(this.destroy$))
-      .subscribe(() => this.loading.set(true));
+      .pipe(
+        tap(() => this.loading.set(true)),
+        takeUntil(this.destroy$)
+      )
+      .subscribe();
 
     combineLatest([
       this.userService.users$,
@@ -575,21 +578,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
           }
           return filtered;
         }),
+        switchMap((filtered) => timer(this.filterLoadingDelay).pipe(map(() => filtered))),
         takeUntil(this.destroy$)
       )
       .subscribe((filtered) => {
         this.filteredUsers = filtered;
         this.dataSource.data = filtered;
-        if (this.isFirstLoad) {
-          this.isFirstLoad = false;
-          setTimeout(() => {
-            this.loading.set(false);
-            this.attachPaginatorAndSort();
-          }, 500);
-        } else {
-          this.loading.set(false);
-          this.attachPaginatorAndSort();
-        }
+        this.loading.set(false);
+        this.attachPaginatorAndSort();
       });
 
     this.userService.roleDistribution$
